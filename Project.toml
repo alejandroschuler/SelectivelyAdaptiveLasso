@@ -1,0 +1,13 @@
+name = "SelectivelyAdaptiveLasso"
+uuid = "52f33b2b-83b2-4cfe-8aa4-4763af86ef4f"
+authors = ["Alejandro Schuler <alejandro.schuler@gmail.com> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
