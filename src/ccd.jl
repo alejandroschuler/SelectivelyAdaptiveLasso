@@ -21,7 +21,7 @@ function coordinate_descent(
         λ::Real = 1,
         β::Dict{Tuple{Int,Section}, Float64} = Dict{Tuple{Int,Section}, Float64}(),
         tol::Number = 1e-6,
-    )::Tuple{Dict{Tuple{Int,Section}, Float64}, Vector{Float64}}
+    )::Tuple{Dict{Tuple{Int,Section}, Float64}, Vector{Float64}, Vector{Float64}}
    
     #=
     A fast coordinate descent algorithm for lasso with binary features. Can be warm-started by passing β. 
@@ -32,9 +32,8 @@ function coordinate_descent(
     end
     
     n = length(Y)
-    λ *= n # rescale λ so that Yᵢ∈[-1,1], λ=1 => β=0
     
-    residual = Y - sum(X[b]*β[b] for b in keys(β)) # can pass from prev iter
+    residual = Y - X*β # can pass from prev iter
     loss(residual, β) = (1/n) * ( (1/2)sum(residual.^2) + λ*sum(abs.(values(β))) )
     
     loss_0 = loss(residual, β)
@@ -72,6 +71,9 @@ function coordinate_descent(
         
     end
     
-    β = Dict(b=>βb for (b,βb) in β if βb ≠ 0)
-    return β, cycle_loss
+    β = Dict(
+        b=>βb for (b,βb) in β 
+        if (βb ≠ 0) | ( b == (0, Section()) )
+    )
+    return β, residual, cycle_loss
 end
