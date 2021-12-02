@@ -16,8 +16,9 @@ Section = Set{Int}
 
 mutable struct SALSpec
     # stopping hyperparameters
-    λ::Float64 # minimum desired regularization strength 
-    B::Int # maximum number of sections to adaptively select and use
+    λ_min::Float64 # minimum desired regularization strength
+    λ_max::Float64 # maximum desired regularization strength
+    max_sections::Int # maximum number of sections to adaptively select and use
     max_iter::Int # maximum iterations to step through
     
     # fitting hyperparameters
@@ -29,8 +30,9 @@ mutable struct SALSpec
 end
 
 function SALSpec(;
-        λ::Real = 0,
-        B::Int = typemax(Int),
+        λ_min::Real = 0,
+        λ_max::Real = 1,
+        max_sections::Int = typemax(Int),
         max_iter::Int = typemax(Int),
         sections::Set{Section} = Set([Section()]),
         λ_ratio::Real = 2/3,
@@ -38,20 +40,21 @@ function SALSpec(;
         n_subsample::Int = 500,
         m_subsample::Int = 500,
     )
-    if (λ==0) & B==typemax(Int) & max_iter==typemax(Int)
-        error("One of λ, B, or max_iter must be provided")
+    if (λ_min==0) & max_sections==typemax(Int) & max_iter==typemax(Int)
+        error("One of λ_min, max_sections, or max_iter must be provided")
     end
 
-    if (λ < 0) | (1 ≤ λ)
-        error("requires λ ∈ [0,1)")
-    end        
+    if (λ_max ≤ 0) | (1 < λ_max) | (λ_min < 0) | (1 ≤ λ_min) | (λ_min ≥ λ_max)
+        error("requires λ_min ∈ [0,1) < λ_max ∈ (0,1]")
+    end    
     
     if (λ_ratio ≤ 0) | (1 ≤ λ_ratio)
         error("requires λ_ratio ∈ (0,1)")
     end
     
     return SALSpec(
-        float(λ), B, max_iter, 
+        float(λ_min), float(λ_max), 
+        max_sections, max_iter, 
         sections, λ_ratio,
         m_knots, n_subsample, m_subsample
     )
@@ -89,7 +92,7 @@ function fit(
     m = min(n, sal.m_knots)
     knots = X[sample(1:n, m, replace=false),:]
     bases = Bases(X, knots=knots, sections=copy(sal.sections))
-    λ = 1.0 # pick initial λ so that |Yᵢ| ≤ max(Y) => β=0
+    λ = sal.λ_max # pick initial λ so that |Yᵢ| ≤ max(Y) => β=0
     λ_scale = n*max(Y...)
     
     β, R, _ = coordinate_descent(bases, Y, λ=λ*λ_scale)
@@ -103,7 +106,7 @@ function fit(
     end
     
     for i in 0:sal.max_iter
-        if (λ < sal.λ) | (length(bases.sections) ≥ sal.B)
+        if (λ < sal.λ_min) | (length(bases.sections) ≥ sal.max_sections)
             break
         end
         
