@@ -119,14 +119,15 @@ function section_search(
         )
         β[isnan.(β)] .= -Inf
         new_max_β, idx = findmax(β)
-        new_sectional_component = idx[3]
+        _, knot, new_sectional_component = idx
 
         if new_max_β ≤ max_β # no improvement, return last section and bases
             # also catches the terminal case where a single one-way section is added twice in a row
             return section
         else
             push!(section, new_sectional_component)
-            section_bases = candidate_bases[:,:,new_sectional_component]
+            # section_bases = candidate_bases[:,:,new_sectional_component]
+            section_basis = candidate_bases[:,:,new_sectional_component]
             candidate_bases .= section_bases .* one_way_bases
             max_β = new_max_β
         end

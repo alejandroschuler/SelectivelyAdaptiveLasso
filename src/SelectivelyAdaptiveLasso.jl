@@ -106,20 +106,27 @@ function fit(
     end
     
     for i in 0:sal.max_iter
-        if (λ < sal.λ_min) | (length(bases.sections) ≥ sal.max_sections)
+        if (length(bases.sections) ≥ sal.max_sections) # | (λ < sal.λ_min) 
             break
         end
         
-        section = section_search(
+    	section = section_search(
             bases, R, 
             n_subsample=sal.n_subsample, 
             m_subsample=sal.m_subsample,
         )
-        if section in bases.sections
-            λ *= sal.λ_ratio
-        else
-            add_section!(bases, section)
+        while (section in bases.sections)
+	        section = section_search(
+	            bases, R, 
+	            n_subsample=sal.n_subsample, 
+	            m_subsample=sal.m_subsample,
+	        )
+        # if section in bases.sections
+        #     λ *= sal.λ_ratio
+        # else
+            # add_section!(bases, section)
         end
+        add_section!(bases, section)
         
         β, R, l = coordinate_descent(bases, Y, λ=λ*λ_scale, β=β)
         push!(loss, mean(R.^2))
