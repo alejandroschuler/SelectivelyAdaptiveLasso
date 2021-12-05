@@ -6,18 +6,20 @@ import Base: keys, getindex, setindex!, BitMatrix, *
 import StatsBase: sample
 import Combinatorics: powerset
 
-Section = Set{Int}
+BasisIndex = Set{CartesianIndex{2}}
+function section(index::BasisIndex)::Set{Int}
+    Set([one_way_index[2] for one_way_index in index])
+end
 
 mutable struct Bases
     # Functional properties
     knots::Matrix{Float64}
-    sections::Set{Section}
 
     # Realizational properties
     one_way::BitArray{3}
-    dict::Dict{Tuple{Int, Section}, BitVector}
+    dict::Dict{BasisIndex, BitVector}
     set::Set{BitVector}
-    sum::Dict{Tuple{Int, Section}, Int}
+    sum::Dict{BasisIndex, Int}
     n::Int # number of observations
     m::Int # number of knots
     p::Int # dimensionality of Xᵢ
@@ -46,40 +48,16 @@ function build_one_way(
     return BitArray(one_way) # (n x m x p), usually m = n
 end
 
-# function bases_to_dict( 
-#         bases_array::BitArray{3};
-#         sections::Vector{Section} = [Set(s) for s in 1:(size(bases_array)[3])]
-#     )::Tuple{Dict{Tuple{Int,Section}, BitVector}, Set{BitVector}, Set{Section}}
-#     #=
-#     Helper for Bases constructor. Turns an (n x m x p) BitArray into a dictionary
-#     (m, S(p)) => (n) where S(p) is the section for basis. Filters duplicate basis realizations
-#     Also creates the set of realizations to facilitate future filtering.
-#     =#
-
-#     n_obs, n_knots, n_sections = size(bases_array)
-#     reverse_bases_dict = Dict{BitVector, Tuple{Int,Section}}()
-
-#     for section_id in 1:n_sections, knot in 1:n_knots
-#         reverse_bases_dict[bases_array[:, knot, section_id]] = (knot, sections[section_id])
-#     end
-
-#     bases_dict = Dict(b=>basis for (basis, b) in reverse_bases_dict)
-#     bases_set = Set(keys(reverse_bases_dict))
-#     sections = Set(Section(j) for j in 1:n_sections)
-
-#     return bases_dict, bases_set
-# end
-
 function BitMatrix(bases::Bases)::BitMatrix
     BitMatrix(hcat([basis for basis in values(bases.dict)]...))
 end
 
-function section_search(
+function basis_search(
         bases::Bases,
         Y::Vector{Float64};
         n_subsample::Int = 1000,
         m_subsample::Int = 1000,
-    )::Section
+    )::Tuple{BasisIndex, BitVector}
     #=
     Attempt to find the section that will be most useful to linearly predict Y.
     
@@ -108,9 +86,9 @@ function section_search(
     one_way_bases = bases.one_way[obs_subsample_idx, knots_subsample_idx, :]
     candidate_bases = copy(one_way_bases)
 
-    max_β = Y_subsample' * ones(n_subsample)/n_subsample # the current strength of the intercept
-    section = Section()
-    section_bases = BitMatrix(ones(n_subsample, m_subsample))
+    basis_index = BasisIndex([CartesianIndex(0,0)]) # start with intercept
+    basis = BitVector(ones(n_subsample))
+    max_β = Y_subsample' * basis/n_subsample # the current strength of the intercept
     
     while true
         β = abs.(
@@ -119,48 +97,47 @@ function section_search(
         )
         β[isnan.(β)] .= -Inf
         new_max_β, idx = findmax(β)
-        _, knot, new_sectional_component = idx
+        _, knot, one_way_section = Tuple(idx)
 
         if new_max_β ≤ max_β # no improvement, return last section and bases
             # also catches the terminal case where a single one-way section is added twice in a row
-            return section
+            return basis_index, basis
         else
-            push!(section, new_sectional_component)
-            # section_bases = candidate_bases[:,:,new_sectional_component]
-            section_basis = candidate_bases[:,:,new_sectional_component]
-            candidate_bases .= section_bases .* one_way_bases
+            push!(basis_index, CartesianIndex(knot, one_way_section))
+            basis = candidate_bases[:, knot, one_way_section]
+            candidate_bases .= basis .* one_way_bases
             max_β = new_max_β
         end
     end
 end
 
-function add_section!(
-    bases::Bases, 
-    section::Section, 
-    section_bases::Union{BitMatrix,Nothing}=nothing
-)::Bases
-    # Adds the given sectional bases to the bases object, deduplicating anything that already exists
+# function add_section!(
+#     bases::Bases, 
+#     section::Section, 
+#     section_bases::Union{BitMatrix,Nothing}=nothing
+# )::Bases
+#     # Adds the given sectional bases to the bases object, deduplicating anything that already exists
 
-    if section == Section()
-        return bases
-    end
+#     if section == Section()
+#         return bases
+#     end
 
-    if isnothing(section_bases)
-        section_bases = prod(bases.one_way[:,:,[section...]], dims=3)[:,:,1]
-    end
+#     if isnothing(section_bases)
+#         section_bases = prod(bases.one_way[:,:,[section...]], dims=3)[:,:,1]
+#     end
 
-    n, m = size(section_bases)
-    for (knot, basis) in enumerate(eachcol(section_bases))
-        if basis ∉ bases.set
-            b = (knot, section)
-            push!(bases.set, basis)
-            bases.dict[b] = basis
-            bases.sum[b] = sum(basis)
-            push!(bases.sections, section)
-        end
-    end
-    return bases
-end
+#     n, m = size(section_bases)
+#     for (knot, basis) in enumerate(eachcol(section_bases))
+#         if basis ∉ bases.set
+#             b = (knot, section)
+#             push!(bases.set, basis)
+#             bases.dict[b] = basis
+#             bases.sum[b] = sum(basis)
+#             push!(bases.sections, section)
+#         end
+#     end
+#     return bases
+# end
 
 # function expand!(bases::Bases, Y::Vector{Float64})::Tuple{Bases, Section}
 #     #=
@@ -183,59 +160,59 @@ end
 function Bases(
     X::Matrix{Float64};
     knots::Matrix{Float64} = X,
-    sections::Set{Section} = Set{Section}()
+    # sections::Set{Section} = Set{Section}()
     # init_one_way=false
 )::Bases
     one_way = build_one_way(X, knots)
     n,m,p = size(one_way)
 
-    intercept_idx = (0, Section())
     intercept = BitVector(ones(n))
 
-    # if init_one_way
-    #     dict, set, sections = bases_to_dict(one_way)
-    # else
-    dict = Dict{Tuple{Int, Section}, BitVector}()
-    set = Set{BitVector}()
+    # add intercept
+    set = Set{BitVector}([intercept])
+    dict = Dict{BasisIndex, BitVector}(BasisIndex([CartesianIndex(0,0)]) => intercept)
+    sums = Dict{BasisIndex, Int}(BasisIndex([CartesianIndex(0,0)]) => n)
+
+    bases = Bases(
+        knots, 
+        # sections,
+        one_way, dict, set, sums, 
+        n, m, p
+    )
+    # for section in sections
+    #     add_section!(bases, section)
     # end
 
-    # add intercept
-    push!(sections, Section())
-    dict[intercept_idx] = intercept
-    push!(set, intercept)
-    set = Set([intercept])
-    dict = Dict(intercept_idx => intercept)
-    sums = Dict(intercept_idx => n)
+    return bases
+end
 
-    bases = Bases(knots, sections, one_way, dict, set, sums, n, m, p)
-    for section in sections
-        add_section!(bases, section)
+function *(X::Bases, β::Dict{BasisIndex, Float64})
+    return sum(X[b]*β[b] for b in keys(β))
+end
+
+function add_basis!(
+    bases::Bases, 
+    index::BasisIndex; 
+    basis::Union{Nothing,BitVector}=nothing
+)::Bases
+    if isnothing(basis)
+        basis = prod(bases.one_way[:,[(i for i in index if i ≠ CartesianIndex(0,0))...]], dims=2)[:,1]
+    end
+    s = sum(basis)
+    if s ≠ 0 # don't add a null basis
+        push!(bases.set, basis)
+        bases.dict[index] = basis
+        bases.sum[index] = s
     end
 
     return bases
 end
 
-function *(X::Bases, β::Dict{Tuple{Int, Section}, Float64})
-    return sum(X[b]*β[b] for b in keys(β))
-end
+keys(bases::Bases) = keys(bases.dict)
 
-function add_basis!(bases::Bases, knot::Int, section::Section)::Bases
-    idx = (knot, section)
-    basis_vec = prod(bases.one_way[:,knot,[j for j in section]], dims=3)[:,1,1]
-    push!(bases.set, basis_vec)
-    bases.dict[idx] = basis_vec
-    bases.sum[idx] = sum(basis_vec)
-
-    push!(bases.sections, section)
-
-    return bases
-end
-
-keys(bases::Bases) = (b for b in keys(bases.dict))
-
-function getindex(bases::Bases, b::Tuple{Int, Section})::BitVector
+function getindex(bases::Bases, b::BasisIndex)::BitVector
     if b ∉ keys(bases.dict)
-        add_basis!(bases, b...)
+        add_basis!(bases, b)
     end
     return bases.dict[b]
 end

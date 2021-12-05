@@ -19,21 +19,17 @@ function coordinate_descent(
         X::Bases,
         Y::Vector{Float64};
         λ::Real = 1,
-        β::Dict{Tuple{Int,Section}, Float64} = Dict{Tuple{Int,Section}, Float64}(),
-        tol::Number = 1e-6,
-    )::Tuple{Dict{Tuple{Int,Section}, Float64}, Vector{Float64}, Vector{Float64}}
+        β::Dict{BasisIndex, Float64} = Dict{BasisIndex, Float64}(BasisIndex([CartesianIndex(0,0)]) => 0.0),
+        tol::Number = 1e-4,
+    )::Tuple{Dict{BasisIndex, Float64}, Vector{Float64}, Vector{Float64}}
    
     #=
     A fast coordinate descent algorithm for lasso with binary features. Can be warm-started by passing β. 
     =#
-
-    if isempty(keys(β))
-        β[(0, Section())] = 0
-    end
     
     n = length(Y)
-    
-    residual = Y - X*β # can pass from prev iter
+
+    residual = Y - X*β # can pass from prev iter 
     loss(residual, β) = (1/n) * ( (1/2)sum(residual.^2) + λ*sum(abs.(values(β))) )
     
     loss_0 = loss(residual, β)
@@ -42,6 +38,10 @@ function coordinate_descent(
     loop_bases = keys(X)
     
     while true
+        if length(cycle_loss) > 10000
+            print(cycle_loss[(end-10):end])
+            break
+        end
         
         # update cycle
         for b in loop_bases
@@ -73,7 +73,7 @@ function coordinate_descent(
     
     β = Dict(
         b=>βb for (b,βb) in β 
-        if (βb ≠ 0) | ( b == (0, Section()) )
+        if (βb ≠ 0) | ( b == BasisIndex([CartesianIndex(0,0)]) )
     )
     return β, residual, cycle_loss
 end
