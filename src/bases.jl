@@ -12,7 +12,19 @@ function section(index::BasisIndex)::Set{Int}
 end
 
 mutable struct Bases
-    # Functional properties
+    #=
+    Represents bases of the form 
+
+    [h(Xᵢ): i ∈ 1...n]
+    where h(x) = Πⱼ1(xⱼ ≥ cⱼ) 
+    and cⱼ ∈ {Xᵢⱼ: i ∈ 1...n}
+
+    We call these "SAL bases" (the mappings h) or "empirical SAL bases" (the vectors h(X)). 
+    SAL bases are a superset of the original HAL bases defined by knots {Xᵢ : i}. 
+    They are also equivalent to indicators for all possible leaves in a standard regression tree.
+
+    Note that we call any basis of the specific form h(x) = 1(xⱼ ≥ c) a "one-way" basis.
+    =#
     knots::Matrix{Float64}
 
     # Realizational properties
@@ -59,23 +71,17 @@ function basis_search(
         m_subsample::Int = 1000,
     )::Tuple{BasisIndex, BitVector}
     #=
-    Attempt to find the section that will be most useful to linearly predict Y.
+    Attempt to find the basis that will be most useful to linearly predict Y.
     
-    Greedily searches through sections, starting at one-way. Given a k-way section, this function creates all 
-    of the interactions between that section and all one-way sections. It then searches through all of the 
-    bases within the p newly-created candidate sections and finds the basis with the maximum univariate 
+    Greedily searches through sections, starting at one-way. Starting with the intercept, this function creates all 
+    of the interactions between a basis and all one-way bases. It then searches through all of the 
+    bases within the m*p newly-created candidate bases and finds the basis with the maximum univariate 
     regression coefficient on the outcome. If this is greater than that of the previous iteration, it 
-    replaces the k-waysection with the (k+1)-way section corresponding to that found basis. If the chosen section
-    is already included in the basis set, we continue further down the "tree" of interactions.
+    replaces the current basis with the the found basis. Otherwise it returns the current basis.
     
     This "top-down" approach makes sense heuristically because we expect that low-order interactions are 
     what's important for most real-world data-generating processes. There is also the fact that realizations
     of higher-order sections must have greater and greater sparsity since these are products of h∈{0,1}ⁿ.
-    
-    I also tried choosing the section using the sum of the univariate coefficients across all bases within 
-    each candidate section. This is slower because of the sum and doesn't appear to increase 
-    "performance". It selects much deeper bases in general; perhaps worth revisting later. I also tried a 
-    recursive implementation but looping is faster.
     =#     
     n_subsample = min(n_subsample, bases.n)
     m_subsample = min(m_subsample, bases.m)
@@ -100,7 +106,7 @@ function basis_search(
         _, knot, one_way_section = Tuple(idx)
 
         if new_max_β ≤ max_β # no improvement, return last section and bases
-            # also catches the terminal case where a single one-way section is added twice in a row
+            # also catches the terminal case where we get the same thing twice in a row
             return basis_index, basis
         else
             push!(basis_index, CartesianIndex(knot, one_way_section))
@@ -111,57 +117,9 @@ function basis_search(
     end
 end
 
-# function add_section!(
-#     bases::Bases, 
-#     section::Section, 
-#     section_bases::Union{BitMatrix,Nothing}=nothing
-# )::Bases
-#     # Adds the given sectional bases to the bases object, deduplicating anything that already exists
-
-#     if section == Section()
-#         return bases
-#     end
-
-#     if isnothing(section_bases)
-#         section_bases = prod(bases.one_way[:,:,[section...]], dims=3)[:,:,1]
-#     end
-
-#     n, m = size(section_bases)
-#     for (knot, basis) in enumerate(eachcol(section_bases))
-#         if basis ∉ bases.set
-#             b = (knot, section)
-#             push!(bases.set, basis)
-#             bases.dict[b] = basis
-#             bases.sum[b] = sum(basis)
-#             push!(bases.sections, section)
-#         end
-#     end
-#     return bases
-# end
-
-# function expand!(bases::Bases, Y::Vector{Float64})::Tuple{Bases, Section}
-#     #=
-#     Add a section to the set of bases. Uses a heuristic search to find the section most useful to predict Y. If said 
-#     section is already included, pick the first section (in increasing order of interactions) that isn't. This is 
-#     unlikely to happen since sections that have already been picked are residualized out.
-#     =#
-#     section, section_bases = section_search(bases, Y)
-#     if section in bases.sections # already included, pick something random
-#         n,m,p = size(bases.one_way)
-#         for section in (Section(s) for s in powerset(1:p))
-#             if section ∉ bases.sections
-#                 return add_section!(bases, section), section
-#             end
-#         end
-#     end
-#     return add_section!(bases, section, section_bases), section
-# end
-
 function Bases(
     X::Matrix{Float64};
     knots::Matrix{Float64} = X,
-    # sections::Set{Section} = Set{Section}()
-    # init_one_way=false
 )::Bases
     one_way = build_one_way(X, knots)
     n,m,p = size(one_way)
@@ -179,9 +137,6 @@ function Bases(
         one_way, dict, set, sums, 
         n, m, p
     )
-    # for section in sections
-    #     add_section!(bases, section)
-    # end
 
     return bases
 end
@@ -190,13 +145,21 @@ function *(X::Bases, β::Dict{BasisIndex, Float64})
     return sum(X[b]*β[b] for b in keys(β))
 end
 
+function build_basis(bases::Bases, index::BasisIndex)::BitVector
+    clean_index = (i for i in index if i ≠ CartesianIndex(0,0))
+    return prod(
+        bases.one_way[:,[clean_index...]], 
+        dims=2
+    )[:,1]
+end
+
 function add_basis!(
     bases::Bases, 
     index::BasisIndex; 
     basis::Union{Nothing,BitVector}=nothing
 )::Bases
     if isnothing(basis)
-        basis = prod(bases.one_way[:,[(i for i in index if i ≠ CartesianIndex(0,0))...]], dims=2)[:,1]
+        basis = build_basis(bases, index)
     end
     s = sum(basis)
     if s ≠ 0 # don't add a null basis
@@ -212,9 +175,12 @@ keys(bases::Bases) = keys(bases.dict)
 
 function getindex(bases::Bases, b::BasisIndex)::BitVector
     if b ∉ keys(bases.dict)
-        add_basis!(bases, b)
+        basis = build_basis(bases, b)
+        add_basis!(bases, b, basis=basis) # protects from null basis
+    else
+        basis = bases.dict[b]
     end
-    return bases.dict[b]
+    return basis
 end
 
 
