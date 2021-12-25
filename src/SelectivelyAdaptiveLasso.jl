@@ -96,13 +96,13 @@ function fit(
     for i in 0:sal.max_iter
 
     	for j in 1:sal.bases_per_iter
-	    	index, basis = basis_search(
+	    	index = basis_search(
 	            bases, R, 
 	            n_subsample=sal.n_subsample, 
 	            m_subsample=sal.m_subsample,
 	        )
 	        while (index in keys(bases))
-		        index, basis = basis_search(
+		        index = basis_search(
 		            bases, R, 
 		            n_subsample=sal.n_subsample, 
 		            m_subsample=sal.m_subsample,

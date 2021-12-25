@@ -69,7 +69,7 @@ function basis_search(
         Y::Vector{Float64};
         n_subsample::Int = 1000,
         m_subsample::Int = 1000,
-    )::Tuple{BasisIndex, BitVector}
+    )::BasisIndex
     #=
     Attempt to find the basis that will be most useful to linearly predict Y.
     
@@ -86,11 +86,10 @@ function basis_search(
     n_subsample = min(n_subsample, bases.n)
     m_subsample = min(m_subsample, bases.m)
     obs_subsample_idx = sample(1:bases.n, n_subsample, replace=false)
-    knots_subsample_idx = sample(1:bases.m, m_subsample, replace=false)
+    knot_subsample_idx = sample(1:bases.m, m_subsample, replace=false)
 
     Y_subsample = Y[obs_subsample_idx]
-    one_way_bases = bases.one_way[obs_subsample_idx, knots_subsample_idx, :]
-    candidate_bases = copy(one_way_bases)
+    candidate_bases = @view bases.one_way[obs_subsample_idx, knot_subsample_idx, :]
 
     basis_index = BasisIndex([CartesianIndex(0,0)]) # start with intercept
     basis = BitVector(ones(n_subsample))
@@ -103,15 +102,16 @@ function basis_search(
         )
         β[isnan.(β)] .= -Inf
         new_max_β, idx = findmax(β)
-        _, knot, one_way_section = Tuple(idx)
+        _, knot, feat = Tuple(idx)
 
         if new_max_β ≤ max_β # no improvement, return last section and bases
             # also catches the terminal case where we get the same thing twice in a row
-            return basis_index, basis
+            return basis_index
         else
-            push!(basis_index, CartesianIndex(knot, one_way_section))
-            basis = candidate_bases[:, knot, one_way_section]
-            candidate_bases .= basis .* one_way_bases
+            push!(basis_index, CartesianIndex(knot, feat))
+            basis = candidate_bases[:, knot, feat]
+            candidate_bases = candidate_bases[basis, :, :]
+            Y_subsample = Y_subsample[basis]
             max_β = new_max_β
         end
     end
