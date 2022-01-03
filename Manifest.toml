@@ -9,6 +9,12 @@ version = "1.4.1"
 [[ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
 
+[[ArrayInterface]]
+deps = ["Compat", "IfElse", "LinearAlgebra", "Requires", "SparseArrays", "Static"]
+git-tree-sha1 = "1ee88c4c76caa995a885dc2f22a5d548dfbbc0ba"
+uuid = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
+version = "3.2.2"
+
 [[Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
@@ -173,6 +179,18 @@ git-tree-sha1 = "ea0b56527cefce87419d4b7559811bd96974a6c8"
 uuid = "792122b4-ca99-40de-a6bc-6742525f08b6"
 version = "0.1.9"
 
+[[EllipsisNotation]]
+deps = ["ArrayInterface"]
+git-tree-sha1 = "3fe985505b4b667e1ae303c9ca64d181f09d5c05"
+uuid = "da5c29d0-fa7d-589e-88eb-ea29b0a81949"
+version = "1.1.3"
+
+[[EzXML]]
+deps = ["Printf", "XML2_jll"]
+git-tree-sha1 = "0fa3b52a04a4e210aeb1626def9c90df3ae65268"
+uuid = "8f5d6c58-4d21-5cfd-889c-e3ad7ee6a615"
+version = "1.1.0"
+
 [[FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
 git-tree-sha1 = "2db648b6712831ecb333eae76dbfd1c156ca13bb"
@@ -218,6 +236,11 @@ deps = ["Base64", "Dates", "IniFile", "Logging", "MbedTLS", "NetworkOptions", "S
 git-tree-sha1 = "0fa77022fe4b511826b39c894c90daf5fce3334a"
 uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 version = "0.9.17"
+
+[[IfElse]]
+git-tree-sha1 = "debdd00ffef04665ccbb3e150747a77560e8fad1"
+uuid = "615f187c-cbe4-4ef1-ba3b-2fcf58d6d173"
+version = "0.1.1"
 
 [[IniFile]]
 deps = ["Test"]
@@ -321,6 +344,12 @@ uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
 
 [[Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+
+[[Libiconv_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "42b62845d70a619f063a7da093d995ec8e15e778"
+uuid = "94ce4f54-9a6c-5748-9c1c-f9c7231a4531"
+version = "1.16.1+1"
 
 [[LinearAlgebra]]
 deps = ["Libdl"]
@@ -607,6 +636,12 @@ git-tree-sha1 = "3be7d49667040add7ee151fefaf1f8c04c8c8276"
 uuid = "860ef19b-820b-49d6-a774-d7a799459cd3"
 version = "1.0.0"
 
+[[Static]]
+deps = ["IfElse"]
+git-tree-sha1 = "7f5a513baec6f122401abfc8e9c074fdac54f6c1"
+uuid = "aedffcd0-7271-4cad-89d0-dc628f76c6d3"
+version = "0.4.1"
+
 [[StatisticalTraits]]
 deps = ["ScientificTypesBase"]
 git-tree-sha1 = "730732cae4d3135e2f2182bd47f8d8b795ea4439"
@@ -734,6 +769,24 @@ deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pk
 git-tree-sha1 = "d7614e82afe4a1569711892039b843b62ae4fe53"
 uuid = "a5c6f535-4255-5ca2-a466-0e519f119c46"
 version = "1.4.2+0"
+
+[[XLSX]]
+deps = ["Dates", "EzXML", "Printf", "Tables", "ZipFile"]
+git-tree-sha1 = "96d05d01d6657583a22410e3ba416c75c72d6e1d"
+uuid = "fdbf4ff8-1666-58a4-91e7-1b58723a45e0"
+version = "0.7.8"
+
+[[XML2_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Pkg", "Zlib_jll"]
+git-tree-sha1 = "1acf5bdf07aa0907e0a37d3718bb88d4b687b74a"
+uuid = "02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
+version = "2.9.12+0"
+
+[[ZipFile]]
+deps = ["Libdl", "Printf", "Zlib_jll"]
+git-tree-sha1 = "3593e69e469d2111389a9bd06bac1f3d730ac6de"
+uuid = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
+version = "0.9.4"
 
 [[Zlib_jll]]
 deps = ["Libdl"]

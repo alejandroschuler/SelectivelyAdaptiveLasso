@@ -5,6 +5,7 @@ Data structures and methods to efficiently represent and work with realizations 
 import Base: keys, getindex, setindex!, BitMatrix, *
 import StatsBase: sample
 import Combinatorics: powerset
+using InvertedIndices
 
 BasisIndex = Set{CartesianIndex{2}}
 function section(index::BasisIndex)::Set{Int}
@@ -35,6 +36,8 @@ mutable struct Bases
     n::Int # number of observations
     m::Int # number of knots
     p::Int # dimensionality of Xᵢ
+    X_sort_idx::Vector{Vector{Int}}
+    X_sort_idx_reverse::Vector{Vector{Int}}
 end
 
 function build_one_way(
@@ -64,57 +67,92 @@ function BitMatrix(bases::Bases)::BitMatrix
     BitMatrix(hcat([basis for basis in values(bases.dict)]...))
 end
 
+function index_to_bool(int_index::Vector{Int}, n::Int)
+    # Translates a 1D integer index to a boolean index vector. Helper function for interact_basis.
+    bool_index = Vector{Bool}(zeros(n))
+    bool_index[int_index] .= 1
+    return bool_index
+end
+
+function interact_basis(Y::Vector{Float64}, bases::Bases, λ, Y_sum_squares, basis_ints, features)
+    best_metric = Inf
+    next_split = ([0], 0)
+    if length(basis_ints) == 0
+        return next_split, best_metric
+    end
+
+    for j in features
+        idx_idx = index_to_bool(bases.X_sort_idx_reverse[j][basis_ints], bases.n)
+        idx = @view bases.X_sort_idx[j][idx_idx]
+        for i in 1:length(idx)
+            new_basis_ints = @view idx[i:end]
+            Y_basis = @view Y[new_basis_ints] # {Yᵢ : h(Xᵢ)=1}
+            sse = sum((Y_basis .- mean(Y_basis)).^2) + (Y_sum_squares - sum(Y_basis.^2)) # ∑(Y-βh(X))²
+            ρ_abs = abs(sum(Y_basis)) # ρ = Y'h(X). Note β = softmax(ρ, λ)/∑h(X) ⟹ β=0 if |ρ|≤λ
+            metric = sse/ρ_abs # want both small sse and big ρ
+            if (ρ_abs > λ) & (metric < best_metric)
+                best_metric = metric
+                next_split = Tuple((new_basis_ints, j))
+            end
+        end
+    end
+    
+    return next_split, best_metric
+end
+
 function basis_search(
-        bases::Bases,
-        Y::Vector{Float64};
-        n_subsample::Int = 1000,
-        m_subsample::Int = 1000,
-    )::BasisIndex
+    bases::Bases,
+    Y::Vector{Float64},
+    λ::Float64;
+    subsample_pct::Float64=1.0, 
+    feat_pct::Float64=1.0,
+)::BasisIndex
     #=
     Attempt to find the basis that will be most useful to linearly predict Y.
     
-    Greedily searches through sections, starting at one-way. Starting with the intercept, this function creates all 
+    Greedily searches through sections. Starting with the intercept, this function creates all 
     of the interactions between a basis and all one-way bases. It then searches through all of the 
-    bases within the m*p newly-created candidate bases and finds the basis with the maximum univariate 
-    regression coefficient on the outcome. If this is greater than that of the previous iteration, it 
+    bases within the m*p newly-created candidate bases and finds the basis with the maximum dot product with the
+    outcome (> λ guarantees an update in the lasso CCD algorithm).
+    If this is greater than that of the previous iteration, it 
     replaces the current basis with the the found basis. Otherwise it returns the current basis.
     
     This "top-down" approach makes sense heuristically because we expect that low-order interactions are 
     what's important for most real-world data-generating processes. There is also the fact that realizations
     of higher-order sections must have greater and greater sparsity since these are products of h∈{0,1}ⁿ.
-    =#     
-    n_subsample = min(n_subsample, bases.n)
-    m_subsample = min(m_subsample, bases.m)
-    obs_subsample_idx = sample(1:bases.n, n_subsample, replace=false)
-    knot_subsample_idx = sample(1:bases.m, m_subsample, replace=false)
+    =#  
+    n_subset = min(Int(ceil(subsample_pct*bases.n)), bases.n)
+    n_feat = min(Int(ceil(feat_pct*bases.p)), bases.p)
 
-    Y_subsample = Y[obs_subsample_idx]
-    candidate_bases = @view bases.one_way[obs_subsample_idx, knot_subsample_idx, :]
-
+    basis_ints = sample(1:bases.n, n_subset, replace=false)
+    
+    best_metric = Inf
     basis_index = BasisIndex([CartesianIndex(0,0)]) # start with intercept
-    basis = BitVector(ones(n_subsample))
-    max_β = Y_subsample' * basis/n_subsample # the current strength of the intercept
+    Y_sum_squares = sum(Y[basis_ints].^2)
     
     while true
-        β = abs.(
-            sum(Y_subsample .* candidate_bases, dims=1) ./
-            sum(candidate_bases, dims=1)
+        features = sample(1:bases.p, n_feat, replace=false)
+        (basis_ints, feat), metric = interact_basis(
+            Y, bases, λ*subsample_pct, 
+            Y_sum_squares, basis_ints, features
         )
-        β[isnan.(β)] .= -Inf
-        new_max_β, idx = findmax(β)
-        _, knot, feat = Tuple(idx)
-
-        if new_max_β ≤ max_β # no improvement, return last section and bases
-            # also catches the terminal case where we get the same thing twice in a row
-            return basis_index
+        if metric < best_metric
+            best_metric = metric
+            push!(basis_index, CartesianIndex(basis_ints[1], feat))
         else
-            push!(basis_index, CartesianIndex(knot, feat))
-            basis = candidate_bases[:, knot, feat]
-            candidate_bases = candidate_bases[basis, :, :]
-            Y_subsample = Y_subsample[basis]
-            max_β = new_max_β
+            return basis_index
         end
     end
+    
+end
+
+function basis_search_random(bases::Bases)::BasisIndex
+    features = []
+    while length(features) == 0
+        features = (1:bases.p)[sample([false,true], bases.p)]
+    end
+    knots = sample(1:bases.m, length(features))
+    return Set(CartesianIndex(knot, feat) for (knot, feat) in zip(knots, features))
 end
 
 function Bases(
@@ -131,11 +169,14 @@ function Bases(
     dict = Dict{BasisIndex, BitVector}(BasisIndex([CartesianIndex(0,0)]) => intercept)
     sums = Dict{BasisIndex, Int}(BasisIndex([CartesianIndex(0,0)]) => n)
 
+    X_sort_idx = [sortperm(col) for col in eachcol(X)] 
+    X_sort_idx_reverse = [sortperm(i) for i in X_sort_idx]
+
     bases = Bases(
         knots, 
-        # sections,
         one_way, dict, set, sums, 
-        n, m, p
+        n, m, p,
+        X_sort_idx, X_sort_idx_reverse,
     )
 
     return bases
@@ -146,6 +187,9 @@ function *(X::Bases, β::Dict{BasisIndex, Float64})
 end
 
 function build_basis(bases::Bases, index::BasisIndex)::BitVector
+    if index == BasisIndex([CartesianIndex(0,0)]) 
+        return bases[BasisIndex([CartesianIndex(0,0)])]
+    end
     clean_index = (i for i in index if i ≠ CartesianIndex(0,0))
     return prod(
         bases.one_way[:,[clean_index...]], 
