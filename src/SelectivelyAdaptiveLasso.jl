@@ -97,12 +97,12 @@ function fit(
     	for j in 1:sal.bases_per_iter
             index = basis_search(bases, R, λ, subsample_pct=sal.subsample_pct, feat_pct=sal.feat_pct)
             basis = build_basis(bases, index)
-            ρ = abs(sum(Y[basis]))
+            ρ = abs(sum(R[basis]))
             tries = 0 
 	        while (index in keys(bases)) | (ρ ≤ λ)
                 index = basis_search_random(bases)
                 basis = build_basis(bases, index)
-                ρ = abs(sum(Y[basis]))
+                ρ = abs(sum(R[basis]))
                 tries +=1 
                 if tries > 1e3
                     return SALFit(bases.knots, β), (loss, loss_val)
