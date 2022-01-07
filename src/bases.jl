@@ -104,8 +104,8 @@ function basis_search(
     bases::Bases,
     Y::Vector{Float64},
     λ::Float64;
-    subsample_pct::Float64=1.0, 
-    feat_pct::Float64=1.0,
+    subsample_n::Int=bases.n, 
+    feat_n::Int=bases.p,
 )::BasisIndex
     #=
     Attempt to find the basis that will be most useful to linearly predict Y.
@@ -121,19 +121,16 @@ function basis_search(
     what's important for most real-world data-generating processes. There is also the fact that realizations
     of higher-order sections must have greater and greater sparsity since these are products of h∈{0,1}ⁿ.
     =#  
-    n_subset = min(Int(ceil(subsample_pct*bases.n)), bases.n)
-    n_feat = min(Int(ceil(feat_pct*bases.p)), bases.p)
-
-    basis_ints = sample(1:bases.n, n_subset, replace=false)
+    basis_ints = sample(1:bases.n, subsample_n, replace=false)
     
     best_metric = Inf
     basis_index = BasisIndex([CartesianIndex(0,0)]) # start with intercept
     Y_sum_squares = sum(Y[basis_ints].^2)
     
     while true
-        features = sample(1:bases.p, n_feat, replace=false)
+        features = sample(1:bases.p, feat_n, replace=false)
         (basis_ints, feat), metric = interact_basis(
-            Y, bases, λ*subsample_pct, 
+            Y, bases, λ* subsample_n/bases.n, 
             Y_sum_squares, basis_ints, features
         )
         if metric < best_metric

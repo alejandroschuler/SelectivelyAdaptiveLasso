@@ -20,6 +20,7 @@ mutable struct SALSpec
     # fitting hyperparameters
     bases_per_iter::Int # number of bases to add at once
     subsample_pct::Float64
+    subsample_n::Int
     feat_pct::Float64
     tol::Float64 # tolerance for lasso coordinate descent convergence (loss)
 end
@@ -28,14 +29,14 @@ function SALSpec(;
         λ::Real = 0.01,
         max_iter::Int = 5000,
         bases_per_iter::Int = 1,
-        m_knots::Int = typemax(Int), # let the data choose
         subsample_pct::Float64 = 0.1,
+        subsample_n::Union{Int, Nothing} = nothing,
         feat_pct::Float64 = 1,
         tol::Real = 1e-4,
     )
     return SALSpec(
         float(λ), max_iter, bases_per_iter,
-        subsample_pct, feat_pct,
+        subsample_pct, subsample_n, feat_pct,
         float(tol),
     )
 end
@@ -89,13 +90,20 @@ function fit(
         R_val = Y_val - bases_val*β
         loss_val = [mean(R_val.^2)]
     end
+
+    if isnothing(sal.subsample_n)
+        subsample_n = min(Int(ceil(sal.subsample_pct*bases.n)), bases.n)
+    else
+        subsample_n = sal.subsample_n
+    end
+    feat_n = min(Int(ceil(sal.feat_pct*bases.p)), bases.p)
     
     for i in 1:sal.max_iter
 
         # max_ρ = max(sum(R[R.>0]), sum(R[R.<0]))
 
     	for j in 1:sal.bases_per_iter
-            index = basis_search(bases, R, λ, subsample_pct=sal.subsample_pct, feat_pct=sal.feat_pct)
+            index = basis_search(bases, R, λ, subsample_n=subsample_n, feat_n=feat_n)
             basis = build_basis(bases, index)
             ρ = abs(sum(R[basis]))
             tries = 0 
