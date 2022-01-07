@@ -20,7 +20,7 @@ mutable struct SALSpec
     # fitting hyperparameters
     bases_per_iter::Int # number of bases to add at once
     subsample_pct::Float64
-    subsample_n::Int
+    subsample_n::Union{Int, Nothing}
     feat_pct::Float64
     tol::Float64 # tolerance for lasso coordinate descent convergence (loss)
 end
