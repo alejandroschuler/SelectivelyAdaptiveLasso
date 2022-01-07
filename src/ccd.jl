@@ -54,7 +54,7 @@ function coordinate_descent(
             
             if Δβb ≠ 0 # tried with deleting β[b] if βb=0, faster as-is
                 β[b] = β̃b
-                residual -= X[b]*Δβb
+                residual[X[b]] .-= Δβb
             end
         end
         
