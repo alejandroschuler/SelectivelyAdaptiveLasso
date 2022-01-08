@@ -79,14 +79,14 @@ function fit(
 	    bases = Bases(X)
 	    β, R, _ = coordinate_descent(bases, Y, λ=λ, tol=sal.tol)
 	else
-		bases = Bases(X, knots=sal_fit.knots)
+		bases = Bases(X)
 		β = sal_fit.β
 		R = Y - bases*β
 	end
 
     loss = [mean(R.^2)] 
     if val
-        bases_val = Bases(X_val, knots=bases.knots)
+        bases_val = Bases(X_val)
         R_val = Y_val - bases_val*β
         loss_val = [mean(R_val.^2)]
     end
@@ -105,18 +105,23 @@ function fit(
     	for j in 1:sal.bases_per_iter
             index = basis_search(bases, R, λ, subsample_n=subsample_n, feat_n=feat_n)
             basis = build_basis(bases, index)
-            ρ = abs(sum(R[basis]))
+            ρ = abs(sum(R[basis.nzind]))
             tries = 0 
 	        while (index in keys(bases)) | (ρ ≤ λ)
                 index = basis_search_random(bases)
                 basis = build_basis(bases, index)
-                ρ = abs(sum(R[basis]))
+                ρ = abs(sum(R[basis.nzind]))
                 tries +=1 
                 if tries > 1e3
                     return SALFit(bases.knots, β), (loss, loss_val)
                 end
 	        end
 	        add_basis!(bases, index)
+            add_basis!(bases_val, index, 
+                basis=translate_basis(
+                    X_val, export_basis(X, bases, index)
+                )
+            )
 	    end
         
         β, R, l = coordinate_descent(bases, Y, λ=λ, β=β, tol=sal.tol)
@@ -132,7 +137,7 @@ function fit(
 		end
     end
 
-    return SALFit(bases.knots, β), (loss, loss_val)
+    return SALFit(X, β), (loss, loss_val)
 end
 
 end # module

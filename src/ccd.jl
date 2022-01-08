@@ -47,14 +47,14 @@ function coordinate_descent(
         for b in loop_bases
             βb = get(β, b, 0)
             sb = X.sum[b]
-            ρ = residual' * X[b]
+            ρ = residual * X[b]
 
             β̃b = soft_thresh(βb*sb + ρ, λ) / sb
             Δβb = β̃b - βb
             
             if Δβb ≠ 0 # tried with deleting β[b] if βb=0, faster as-is
                 β[b] = β̃b
-                residual[X[b]] .-= Δβb
+                residual[X[b].nzind] .-= Δβb
             end
         end
         

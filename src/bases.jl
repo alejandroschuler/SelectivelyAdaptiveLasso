@@ -2,12 +2,42 @@
 Data structures and methods to efficiently represent and work with realizations of HAL basis functions
 =#
 
-import Base: keys, getindex, setindex!, BitMatrix, *
+import Base: keys, getindex, setindex!, BitMatrix, *, intersect, hash
 import StatsBase: sample
 import Combinatorics: powerset
 using InvertedIndices
 
+struct BoolSparseVector
+    length::Int
+    nzind::Vector{Int} 
+end
+BoolSparseVector(x::BitVector) = BoolSparseVector(length(x), findall(!iszero, x))
+
+function *(a::Float64, x::BoolSparseVector)::Vector{Float64}
+    result = zeros(Float64, x.length)
+    result[x.nzind] .= a
+    return result
+end
+*(x::BoolSparseVector, a::Float64) = a*x
+
+function *(v::Vector{Float64}, x::BoolSparseVector)::Float64
+    return sum(v[i] for i in x.nzind)
+end
+*(x::BoolSparseVector, v::Vector{Float64}) = v*x
+
+function intersect(one_way_bases::Vararg{BoolSparseVector}) 
+    return BoolSparseVector(
+        one_way_bases[1].length,
+        intersect([b.nzind for b in one_way_bases]...)
+    )
+end
+
+hash(x::BoolSparseVector) = hash(x.nzind)
+getindex(x, i::BoolSparseVector) = x[i.nzind]
+# setindex!(x, v, i::BoolSparseVector) = setindex!(x, v, i.nzind)
+
 BasisIndex = Set{CartesianIndex{2}}
+
 function section(index::BasisIndex)::Set{Int}
     Set([one_way_index[2] for one_way_index in index])
 end
@@ -26,45 +56,13 @@ mutable struct Bases
 
     Note that we call any basis of the specific form h(x) = 1(xⱼ ≥ c) a "one-way" basis.
     =#
-    knots::Matrix{Float64}
-
-    # Realizational properties
-    one_way::BitArray{3}
-    dict::Dict{BasisIndex, BitVector}
-    set::Set{BitVector}
+    dict::Dict{BasisIndex, BoolSparseVector}
+    set::Set{BoolSparseVector}
     sum::Dict{BasisIndex, Int}
     n::Int # number of observations
-    m::Int # number of knots
     p::Int # dimensionality of Xᵢ
     X_sort_idx::Vector{Vector{Int}}
     X_sort_idx_reverse::Vector{Vector{Int}}
-end
-
-function build_one_way(
-        X::Matrix{Float64}, # (n x p)
-        knots::Matrix{Float64} = X, # optional, data points to use as knots
-    )::BitArray{3}
-    #=
-    Helper for Bases constructor.
-
-    Creates all bases corresponding to one-way sections, using the knots provided.
-    Returns an (n x m x p) BitArray.
-    =#
-
-    n, p = size(X)
-    m, p = size(knots)
-
-    one_way = zeros(Bool,(n,m,p))
-
-    for knot in 1:m
-        one_way[:,knot,:] = (X' .≥ knots[knot, :])'
-    end
-
-    return BitArray(one_way) # (n x m x p), usually m = n
-end
-
-function BitMatrix(bases::Bases)::BitMatrix
-    BitMatrix(hcat([basis for basis in values(bases.dict)]...))
 end
 
 function interact_basis(
@@ -85,6 +83,8 @@ function interact_basis(
         Y_idx = Y[idx]
         Y_sq_idx = Y_squared[idx]
 
+        # need to account for possible ties here, i.e. can't break in the middle of a tie
+        # should give speedup in exchange for storing another index or something?
         Y_sums = cumsum(Y_idx)
         Y_means = Y_sums ./ (1:length(idx))
         Y_sq_sums = cumsum(Y_sq_idx)
@@ -152,61 +152,64 @@ function basis_search_random(bases::Bases)::BasisIndex
     while length(features) == 0
         features = (1:bases.p)[sample([false,true], bases.p)]
     end
-    knots = sample(1:bases.m, length(features))
+    knots = sample(1:bases.n, length(features))
     return Set(CartesianIndex(knot, feat) for (knot, feat) in zip(knots, features))
 end
 
 function Bases(
     X::Matrix{Float64};
-    knots::Matrix{Float64} = X,
 )::Bases
-    one_way = build_one_way(X, knots)
-    n,m,p = size(one_way)
+    n,p = size(X)
 
-    intercept = BitVector(ones(n))
-
-    # add intercept
-    set = Set{BitVector}([intercept])
-    dict = Dict{BasisIndex, BitVector}(BasisIndex([CartesianIndex(0,0)]) => intercept)
+    intercept = BoolSparseVector(n, collect(1:n))
+    set = Set{BoolSparseVector}([intercept])
+    dict = Dict{BasisIndex, BoolSparseVector}(BasisIndex([CartesianIndex(0,0)]) => intercept)
     sums = Dict{BasisIndex, Int}(BasisIndex([CartesianIndex(0,0)]) => n)
 
     X_sort_idx = [sortperm(col) for col in eachcol(X)] 
     X_sort_idx_reverse = [sortperm(i) for i in X_sort_idx]
 
-    bases = Bases(
-        knots, 
-        one_way, dict, set, sums, 
-        n, m, p,
+    return Bases(
+        dict, set, sums, 
+        n, p,
         X_sort_idx, X_sort_idx_reverse,
     )
+end
 
-    return bases
+function export_basis(X::Matrix{Float64}, bases::Bases, idx::BasisIndex)
+    clean_index = (i for i in idx if i ≠ CartesianIndex(0,0))
+    return [(X[i], i[2]) for i in clean_index]
+end
+
+function translate_basis(X::Matrix{Float64}, idx)::BoolSparseVector
+    return BoolSparseVector(reduce(.*, (X[:,j].≥x for (x,j) in idx)))
 end
 
 function *(X::Bases, β::Dict{BasisIndex, Float64})
     return sum(X[b]*β[b] for b in keys(β))
 end
 
-function build_basis(bases::Bases, index::BasisIndex)::BitVector
+function one_way(bases::Bases, knot_id::Int, feat_id::Int)
+    return BoolSparseVector(bases.n, bases.X_sort_idx[feat_id][knot_id:end])
+end
+
+function build_basis(bases::Bases, index::BasisIndex)::BoolSparseVector
     if index == BasisIndex([CartesianIndex(0,0)]) 
         return bases[BasisIndex([CartesianIndex(0,0)])]
     end
     clean_index = (i for i in index if i ≠ CartesianIndex(0,0))
-    return prod(
-        bases.one_way[:,[clean_index...]], 
-        dims=2
-    )[:,1]
+    return intersect([one_way(bases, Tuple(i)...) for i in clean_index]...)
 end
 
 function add_basis!(
     bases::Bases, 
     index::BasisIndex; 
-    basis::Union{Nothing,BitVector}=nothing
+    basis::Union{Nothing,BoolSparseVector}=nothing
 )::Bases
     if isnothing(basis)
         basis = build_basis(bases, index)
     end
-    s = sum(basis)
+    s = length(basis.nzind)
     if s ≠ 0 # don't add a null basis
         push!(bases.set, basis)
         bases.dict[index] = basis
@@ -218,7 +221,7 @@ end
 
 keys(bases::Bases) = keys(bases.dict)
 
-function getindex(bases::Bases, b::BasisIndex)::BitVector
+function getindex(bases::Bases, b::BasisIndex)::BoolSparseVector
     if b ∉ keys(bases.dict)
         basis = build_basis(bases, b)
         add_basis!(bases, b, basis=basis) # protects from null basis
