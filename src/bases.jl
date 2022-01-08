@@ -67,14 +67,11 @@ function BitMatrix(bases::Bases)::BitMatrix
     BitMatrix(hcat([basis for basis in values(bases.dict)]...))
 end
 
-function index_to_bool(int_index::Vector{Int}, n::Int)
-    # Translates a 1D integer index to a boolean index vector. Helper function for interact_basis.
-    bool_index = Vector{Bool}(zeros(n))
-    bool_index[int_index] .= 1
-    return bool_index
-end
-
-function interact_basis(Y::Vector{Float64}, bases::Bases, λ, Y_sum_squares, basis_ints, features)
+function interact_basis(
+    Y::Vector{Float64}, Y_squared::Vector{Float64}, 
+    bases::Bases, λ::Float64, Y_full_sum_squares::Float64, 
+    basis_ints, features::Vector{Int}
+)
     best_metric = Inf
     next_split = ([0], 0)
     if length(basis_ints) == 0
@@ -82,18 +79,24 @@ function interact_basis(Y::Vector{Float64}, bases::Bases, λ, Y_sum_squares, bas
     end
 
     for j in features
-        idx_idx = index_to_bool(bases.X_sort_idx_reverse[j][basis_ints], bases.n)
+        idx_idx = sort(bases.X_sort_idx_reverse[j][basis_ints])
         idx = @view bases.X_sort_idx[j][idx_idx]
-        for i in 1:length(idx)
-            new_basis_ints = @view idx[i:end]
-            Y_basis = @view Y[new_basis_ints] # {Yᵢ : h(Xᵢ)=1}
-            sse = sum((Y_basis .- mean(Y_basis)).^2) + (Y_sum_squares - sum(Y_basis.^2)) # ∑(Y-βh(X))²
-            ρ_abs = abs(sum(Y_basis)) # ρ = Y'h(X). Note β = softmax(ρ, λ)/∑h(X) ⟹ β=0 if |ρ|≤λ
-            metric = sse/ρ_abs # want both small sse and big ρ
-            if (ρ_abs > λ) & (metric < best_metric)
-                best_metric = metric
-                next_split = Tuple((new_basis_ints, j))
-            end
+
+        Y_idx = Y[idx]
+        Y_sq_idx = Y_squared[idx]
+
+        Y_sums = cumsum(Y_idx)
+        Y_means = Y_sums ./ (1:length(idx))
+        Y_sq_sums = cumsum(Y_sq_idx)
+
+        sses = (Y_sq_sums - Y_sums.^2) - (Y_full_sum_squares .- Y_sq_sums)
+        ρ_abss = abs.(Y_sums)
+        metrics = sses./ρ_abss
+
+        metric, split = findmin(metrics)
+        if (ρ_abss[split] > λ) & (metric < best_metric)
+            best_metric = metric
+            next_split = Tuple((idx[split:end], j))
         end
     end
     
@@ -126,11 +129,12 @@ function basis_search(
     best_metric = Inf
     basis_index = BasisIndex([CartesianIndex(0,0)]) # start with intercept
     Y_sum_squares = sum(Y[basis_ints].^2)
+    Y_squared = Y.^2
     
     while true
         features = sample(1:bases.p, feat_n, replace=false)
         (basis_ints, feat), metric = interact_basis(
-            Y, bases, λ* subsample_n/bases.n, 
+            Y, Y_squared, bases, λ* subsample_n/bases.n, 
             Y_sum_squares, basis_ints, features
         )
         if metric < best_metric
