@@ -42,12 +42,11 @@ function SALSpec(;
 end
 
 mutable struct SALFit
-    knots::Matrix{Float64} # (m x p) matrix, each row is a knot
     β::Dict{BasisIndex, Float64} 
 end
 
 function predict(sal_fit::SALFit, X::Matrix{Float64})
-    bases = Bases(X, knots=sal_fit.knots)
+    bases = Bases(Features(X), indices=keys(sal_fit.β))
     return bases * sal_fit.β
 end
 
@@ -60,8 +59,6 @@ function fit(
     # validation data for early stopping
         X_val::Union{Nothing, Matrix{Float64}} = nothing, 
         Y_val::Union{Nothing, Vector{Float64}} = nothing,
-    # existing fit for warm-starting
-        sal_fit::Union{Nothing, SALFit} = nothing,
     # logging
         verbose::Bool = false,
         print_iter::Int = 100,
@@ -72,56 +69,47 @@ function fit(
 
     val = (!isnothing(X_val) & !isnothing(Y_val))
     n,p = size(X)
+    X = Features(X)
     λ = sal.λ * max(sum(Y[Y.>0]), sum(Y[Y.<0])) # makes it so λ=1 => β=0
     ρ = 0
 
-    if isnothing(sal_fit)
-	    bases = Bases(X)
-	    β, R, _ = coordinate_descent(bases, Y, λ=λ, tol=sal.tol)
-	else
-		bases = Bases(X)
-		β = sal_fit.β
-		R = Y - bases*β
-	end
+	bases = Bases(X)
+	β, R, _ = coordinate_descent(bases, Y, λ=λ, tol=sal.tol)
 
     loss = [mean(R.^2)] 
     if val
+        X_val = Features(X_val)
         bases_val = Bases(X_val)
         R_val = Y_val - bases_val*β
         loss_val = [mean(R_val.^2)]
     end
 
     if isnothing(sal.subsample_n)
-        subsample_n = min(Int(ceil(sal.subsample_pct*bases.n)), bases.n)
+        subsample_n = min(Int(ceil(sal.subsample_pct*n)), n)
     else
         subsample_n = sal.subsample_n
     end
-    feat_n = min(Int(ceil(sal.feat_pct*bases.p)), bases.p)
+    feat_n = min(Int(ceil(sal.feat_pct*p)), p)
     
     for i in 1:sal.max_iter
 
-        # max_ρ = max(sum(R[R.>0]), sum(R[R.<0]))
-
     	for j in 1:sal.bases_per_iter
-            index = basis_search(bases, R, λ, subsample_n=subsample_n, feat_n=feat_n)
-            basis = build_basis(bases, index)
+            index, basis = basis_search(X, R, λ, subsample_n=subsample_n, feat_n=feat_n)
             ρ = abs(sum(R[basis.nzind]))
             tries = 0 
 	        while (index in keys(bases)) | (ρ ≤ λ)
-                index = basis_search_random(bases)
-                basis = build_basis(bases, index)
+                index, basis = basis_search_random(X)
                 ρ = abs(sum(R[basis.nzind]))
                 tries +=1 
                 if tries > 1e3
-                    return SALFit(bases.knots, β), (loss, loss_val)
+                    return SALFit(β), (loss, loss_val)
                 end
 	        end
-	        add_basis!(bases, index)
-            add_basis!(bases_val, index, 
-                basis=translate_basis(
-                    X_val, export_basis(X, bases, index)
-                )
-            )
+	        add_basis!(bases, index, basis)
+            if val
+                basis_val = build_basis(X_val, index)
+                add_basis!(bases_val, index, basis_val)
+            end
 	    end
         
         β, R, l = coordinate_descent(bases, Y, λ=λ, β=β, tol=sal.tol)
@@ -137,7 +125,7 @@ function fit(
 		end
     end
 
-    return SALFit(X, β), (loss, loss_val)
+    return SALFit(β), (loss, loss_val)
 end
 
 end # module
