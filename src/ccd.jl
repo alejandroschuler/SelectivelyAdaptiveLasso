@@ -19,7 +19,7 @@ function coordinate_descent(
         X::Bases,
         Y::Vector{Float64};
         λ::Real = 1,
-        β::Dict{BasisIndex, Float64} = Dict{BasisIndex, Float64}(BasisIndex([CartesianIndex(0,0)]) => 0.0),
+        β::Dict{BasisIndex, Float64} = Dict{BasisIndex, Float64}(BasisIndex([(0,NaN)]) => 0.0),
         tol::Number = 1e-4,
     )::Tuple{Dict{BasisIndex, Float64}, Vector{Float64}, Vector{Float64}}
    
@@ -54,7 +54,7 @@ function coordinate_descent(
             
             if Δβb ≠ 0 # tried with deleting β[b] if βb=0, faster as-is
                 β[b] = β̃b
-                residual[X[b].nzind] .-= Δβb
+                residual[(X[b]).nzind] .-= Δβb
             end
         end
         
@@ -73,7 +73,7 @@ function coordinate_descent(
     
     β = Dict(
         b=>βb for (b,βb) in β 
-        if (βb ≠ 0) | ( b == BasisIndex([CartesianIndex(0,0)]) )
+        if (βb ≠ 0) | ( b == BasisIndex([(0,NaN)]) )
     )
     return β, residual, cycle_loss
 end
