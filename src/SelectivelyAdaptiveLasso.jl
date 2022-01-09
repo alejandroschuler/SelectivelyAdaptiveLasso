@@ -95,9 +95,12 @@ function fit(
 
     	for j in 1:sal.bases_per_iter
             index, basis = basis_search(X, R, λ, subsample_n=subsample_n, feat_n=feat_n)
+            # another idea for adaptive search: decrease λ when search returns a basis we already have 
+            # (i.e. we want more β for an existing basis, rather than spreading β to other bases)
             ρ = abs(sum(R[basis.nzind]))
             tries = 0 
-	        while (index in keys(bases)) | (ρ ≤ λ)
+	        while (index in keys(bases)) #| (ρ ≤ λ)
+                # index, basis = basis_search(X, R, λ, subsample_n=5, feat_n=feat_n)
                 index, basis = basis_search_random(X)
                 ρ = abs(sum(R[basis.nzind]))
                 tries +=1 

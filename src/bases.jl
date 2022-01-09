@@ -6,7 +6,6 @@ import Base: keys, getindex, setindex!, BitMatrix, *, intersect
 import StatsBase: sample
 import Combinatorics: powerset
 using InvertedIndices
-using SparseArrays
 
 
 BasisIndex = Set{Tuple{Int, Float64}}
@@ -16,10 +15,17 @@ struct BasisVector
     nzind::Vector{UInt32} 
 end
 
-*(a::Float64, x::BasisVector)::Vector{Float64} = sparsevec(x.nzind, a, x.length)
+function *(a::Float64, x::BasisVector)::Vector{Float64}
+    result = zeros(Float64, x.length)
+    result[x.nzind] .= a
+    return result
+end
 *(x::BasisVector, a::Float64) = a*x
 
 function *(v::Vector{Float64}, x::BasisVector)::Float64
+    if length(x.nzind) == 0
+        return 0.0
+    end
     return sum(v[i] for i in x.nzind)
 end
 *(x::BasisVector, v::Vector{Float64}) = v*x
@@ -54,7 +60,11 @@ function one_way(X::Features, j, x)
     if isnan(x) 
         return 1:X.n
     end
-    return X.sort_idx[j][findfirst_gt_sorted(X.sorted[j], x):end]
+    start = findfirst_gt_sorted(X.sorted[j], x)
+    if isnothing(start)
+        return Vector{UInt32}()
+    end
+    return X.sort_idx[j][start:end]
 end
 
 function build_basis(X::Features, idx::BasisIndex)
@@ -71,7 +81,7 @@ function interact_basis(
 )
     best_basis_ints = basis_ints
     best_metric = Inf
-    feature, x_split = nothing, nothing
+    feature, x_split = 0, NaN
 
     if length(basis_ints) ≠ 0
         for j in features
@@ -182,7 +192,17 @@ end
 keys(bases::Bases) = keys(bases.dict)
 getindex(bases::Bases, b::BasisIndex)::BasisVector = bases.dict[b]
 
-*(X::Bases, β::Dict{BasisIndex, Float64})::Vector{Float64} = sum(X[b]*β[b] for b in keys(β))
+function *(X::Bases, β::Dict{BasisIndex, Float64})::Vector{Float64}
+    total = zeros(Float64, X.sum[BasisIndex([(0,NaN)])])
+    for (b, βi) in β
+        # total[X[b].nzind] .+= βi
+        for i in X[b].nzind
+            total[i] += βi
+        end
+    end
+    return total
+end
+## REPLACE THIS WITH FAST ALGORITHM THAT EXPLOITS SPARSITY OF BASES?
 
 function add_basis!(
     bases::Bases, 

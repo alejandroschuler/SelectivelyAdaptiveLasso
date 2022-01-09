@@ -37,7 +37,7 @@ function coordinate_descent(
     
     loop_bases = keys(X)
     
-    while true
+    @inbounds while true
         if length(cycle_loss) > 10000
             print(cycle_loss[(end-10):end])
             break
@@ -54,7 +54,9 @@ function coordinate_descent(
             
             if Δβb ≠ 0 # tried with deleting β[b] if βb=0, faster as-is
                 β[b] = β̃b
-                residual[(X[b]).nzind] .-= Δβb
+                for i in X[b].nzind
+                    residual[i] -= Δβb
+                end
             end
         end
         
