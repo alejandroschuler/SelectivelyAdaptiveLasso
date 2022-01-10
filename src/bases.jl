@@ -218,3 +218,22 @@ function add_basis!(
     return bases
 end
 
+function delete_basis!(
+    bases::Bases, 
+    index::BasisIndex
+)::Bases
+    if index in keys(bases.dict)
+        delete!(bases.set, bases.dict[index])
+        delete!(bases.dict, index)
+        delete!(bases.sum, index)
+    end
+    return bases
+end
+
+function filter_bases!(bases::Bases, indices)
+    indices = push!(Set(indices), Set([(0.0, NaN)]))
+    for b in setdiff(Set(keys(bases)), Set(indices))
+        delete_basis!(bases, b)
+    end
+    return bases
+end

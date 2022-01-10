@@ -97,16 +97,16 @@ function fit(
             index, basis = basis_search(X, R, λ, subsample_n=subsample_n, feat_n=feat_n)
             # another idea for adaptive search: decrease λ when search returns a basis we already have 
             # (i.e. we want more β for an existing basis, rather than spreading β to other bases)
-            ρ = abs(sum(R[basis.nzind]))
-            tries = 0 
+            # ρ = abs(sum(R[basis.nzind]))
+            # tries = 0 
 	        while (index in keys(bases)) #| (ρ ≤ λ)
-                # index, basis = basis_search(X, R, λ, subsample_n=5, feat_n=feat_n)
+         #        # index, basis = basis_search(X, R, λ, subsample_n=5, feat_n=feat_n)
                 index, basis = basis_search_random(X)
-                ρ = abs(sum(R[basis.nzind]))
-                tries +=1 
-                if tries > 1e3
-                    return SALFit(β), (loss, loss_val)
-                end
+         #        # ρ = abs(sum(R[basis.nzind]))
+         #        tries +=1 
+         #        if tries > 1e3
+         #            return SALFit(β), (mse, mse_val)
+         #        end
 	        end
 	        add_basis!(bases, index, basis)
             if val
@@ -116,19 +116,20 @@ function fit(
 	    end
         
         β, R, l = coordinate_descent(bases, Y, λ=λ, β=β, tol=sal.tol)
-        push!(loss, mean(R.^2))
+        filter_bases!(bases, keys(β))
+        push!(mse, mean(R.^2))
         if val
             R_val = Y_val - bases_val*β
-            push!(loss_val, mean(R_val.^2))
+            push!(mse_val, mean(R_val.^2))
         end
 
         if verbose & (i % print_iter == 0)
-		    print((loss[end], loss_val[end]))
+		    print((mse[end], mse_val[end]))
 		    print("\n")
 		end
     end
 
-    return SALFit(β), (loss, loss_val)
+    return SALFit(β), (mse, mse_val)
 end
 
 end # module
