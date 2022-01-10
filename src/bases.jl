@@ -88,16 +88,24 @@ function interact_basis(
             idx_idx = sort(X.idx_in_sorted[j][basis_ints]) 
             idx = @view X.sort_idx[j][idx_idx]
 
+            # to implement search over only valid cutpoints, 
+            # keep a binary index of valid cutpoints along X.sorted,
+            # slice it along with X.sort_idx, then index `metrics` with the result
+            # before going to findmin. Then use the result of findmin to index into 
+            # findnz(indexed_binary) to get back the index for X.sorted
+
             Y_idx = Y[idx]
-            Y_sq_idx = Y_squared[idx]
+            # Y_sq_idx = Y_squared[idx]
 
             Y_sums = cumsum(Y_idx)
-            Y_means = Y_sums ./ (1:length(idx))
-            Y_sq_sums = cumsum(Y_sq_idx)
+            # Y_means = Y_sums ./ (1:length(idx))
+            # Y_sq_sums = cumsum(Y_sq_idx)
 
-            sses = (Y_sq_sums - Y_sums.^2) - (Y_full_sum_squares .- Y_sq_sums)
+            # sses = (Y_sq_sums - Y_sums.^2) - (Y_full_sum_squares .- Y_sq_sums)
             ρ_abss = abs.(Y_sums)
-            metrics = sses./ρ_abss
+            # metrics = ρ_abss.^2 - sses
+            metrics = -ρ_abss
+            # metrics = sses
 
             metric, idx_split = findmin(metrics)
             if (ρ_abss[idx_split] > λ) & (metric < best_metric)
