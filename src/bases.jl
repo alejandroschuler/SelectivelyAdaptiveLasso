@@ -125,7 +125,7 @@ function basis_search(
     Y::Vector{Float64},
     λ::Float64;
     subsample_n::Int=X.n, 
-    feat_n::Int=X.p,
+    feat_n::Int=Int(ceil(sqrt(X.p))),
 )::Tuple{BasisIndex, BasisVector}
     #=
     Greedily attempt to find the basis vector that will be most useful to add to the lasso by interacting 

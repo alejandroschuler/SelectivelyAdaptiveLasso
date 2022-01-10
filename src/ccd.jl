@@ -45,7 +45,7 @@ function coordinate_descent(
         
         # update cycle
         for b in loop_bases
-            βb = get(β, b, 0)
+            βb = get(β, b, 0.0)
             sb = X.sum[b]
             ρ = residual * X[b]
 
@@ -75,7 +75,7 @@ function coordinate_descent(
     
     β = Dict(
         b=>βb for (b,βb) in β 
-        if (βb ≠ 0) | ( b == BasisIndex([(0,NaN)]) )
+        if (βb ≠ 0.0) | ( b == BasisIndex([(0,NaN)]) )
     )
     return β, residual, cycle_loss
 end

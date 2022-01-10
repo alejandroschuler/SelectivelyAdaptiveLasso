@@ -22,7 +22,7 @@ mutable struct SALSpec
     subsample_pct::Float64
     subsample_n::Union{Int, Nothing}
     feat_pct::Float64
-    tol::Float64 # tolerance for lasso coordinate descent convergence (loss)
+    tol::Float64 # tolerance for lasso coordinate descent convergence (loss = mse + penalty)
 end
 
 function SALSpec(;
@@ -76,12 +76,12 @@ function fit(
 	bases = Bases(X)
 	β, R, _ = coordinate_descent(bases, Y, λ=λ, tol=sal.tol)
 
-    loss = [mean(R.^2)] 
+    mse = [mean(R.^2)] 
     if val
         X_val = Features(X_val)
         bases_val = Bases(X_val)
         R_val = Y_val - bases_val*β
-        loss_val = [mean(R_val.^2)]
+        mse_val = [mean(R_val.^2)]
     end
 
     if isnothing(sal.subsample_n)
