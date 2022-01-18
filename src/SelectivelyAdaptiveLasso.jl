@@ -46,7 +46,10 @@ mutable struct SALFit
 end
 
 function predict(sal_fit::SALFit, X::Matrix{Float64})
-    bases = Bases(Features(X), indices=keys(sal_fit.β))
+    bases = Bases(
+        Features([FeatureVector(x) for x in eachcol(X)]), 
+        indices=keys(sal_fit.β)
+    )
     return bases * sal_fit.β
 end
 
@@ -69,7 +72,7 @@ function fit(
 
     val = (!isnothing(X_val) & !isnothing(Y_val))
     n,p = size(X)
-    X = Features(X)
+    X = [FeatureVector(x) for x in eachcol(X)]
     λ = sal.λ * max(sum(Y[Y.>0]), sum(Y[Y.<0])) # makes it so λ=1 => β=0
     ρ = 0
 
@@ -78,7 +81,7 @@ function fit(
 
     mse = [mean(R.^2)] 
     if val
-        X_val = Features(X_val)
+        X_val = [FeatureVector(x) for x in eachcol(X_val)]
         bases_val = Bases(X_val)
         R_val = Y_val - bases_val*β
         mse_val = [mean(R_val.^2)]
@@ -94,20 +97,11 @@ function fit(
     for i in 1:sal.max_iter
 
     	for j in 1:sal.bases_per_iter
-            index, basis = basis_search(X, R, λ, subsample_n=subsample_n, feat_n=feat_n)
-            # another idea for adaptive search: decrease λ when search returns a basis we already have 
-            # (i.e. we want more β for an existing basis, rather than spreading β to other bases)
-            # ρ = abs(sum(R[basis.nzind]))
-            # tries = 0 
-	        while (index in keys(bases)) #| (ρ ≤ λ)
-         #        # index, basis = basis_search(X, R, λ, subsample_n=5, feat_n=feat_n)
-                index, basis = basis_search_random(X)
-         #        # ρ = abs(sum(R[basis.nzind]))
-         #        tries +=1 
-         #        if tries > 1e3
-         #            return SALFit(β), (mse, mse_val)
-         #        end
-	        end
+            index, basis = basis_search(
+                X, R, 
+                subsample_n=subsample_n, feat_n=feat_n,
+                off_limits = deepcopy(keys(bases))
+            )
 	        add_basis!(bases, index, basis)
             if val
                 basis_val = build_basis(X_val, index)
@@ -117,6 +111,7 @@ function fit(
         
         β, R, l = coordinate_descent(bases, Y, λ=λ, β=β, tol=sal.tol)
         filter_bases!(bases, keys(β))
+        
         push!(mse, mean(R.^2))
         if val
             R_val = Y_val - bases_val*β
@@ -124,7 +119,7 @@ function fit(
         end
 
         if verbose & (i % print_iter == 0)
-		    print((mse[end], mse_val[end]))
+		    print((mse[end], mse_val[end], length(β), length(bases.dict)))
 		    print("\n")
 		end
     end
