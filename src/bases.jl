@@ -89,9 +89,6 @@ function sse_indicator_ols(Y::Vector{Float64}, Y2::Vector{Float64}=Y.^2)
     nnz = 1:length(Y)
 
     return (Y_sq_sums - (Y_sums.^2) ./ nnz) + (Y_sq_sums[end] .- Y_sq_sums)
-    # ρ_abs = abs.(Y_sums)
-    # sses = sses./ρ_abs
-    # sses = -ρ_abs
 end
 
 function best_split_sorted(
@@ -105,15 +102,14 @@ function best_split_sorted(
     # directions! Just be careful with the valid cutpoints ^
     sses = sse_indicator_ols(Y, Y2)
     sse_order = sortperm(sses)
-    # changes = changepoints(X)
-    for ĩ in sse_order
+    changes = changepoints(X)
+    for ĩ in (i for i in sse_order if i ∈ changes)
         x = X[ĩ]
-        # choosing x = min(X[I]) doesn't do anything
-        if (x ∉ off_limits) # & (ĩ ∈ changes) 
+        if (x ∉ off_limits)
             return I[1:ĩ], Y[1:ĩ], Y2[1:ĩ], x, sses[ĩ]
         end
-        return I, Y, Y2, NaN, Inf
     end
+    return I, Y, Y2, NaN, Inf
 end
 
 function interact_basis(
