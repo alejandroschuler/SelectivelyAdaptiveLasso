@@ -119,7 +119,7 @@ function fit(
         end
 
         if verbose & (i % print_iter == 0)
-		    print((mse[end], mse_val[end], length(β), length(bases.dict)))
+		    print((sqrt(mse[end]), sqrt(mse_val[end]), length(β), length(bases.dict)))
 		    print("\n")
 		end
     end
