@@ -38,6 +38,11 @@ for i in 1:100
     @test x̃ == min(X[I][X[I].≥c]...)
     @test l̃ ≈ min(sses_brute(X[I], Y[I])...)
 
+    X = [1.0, 0.9, 0.9, 0.5, 0.1]
+    I = 1:length(X)
+    Y = rand(length(X))
+    Ĩ, Ỹ, _, x̃, l̃ = SAL.best_split_sorted(I,X[I],Y[I])
+    @test ((2 ∉ Ĩ) & (3 ∉ Ĩ)) | ((2 ∈ Ĩ) & (3 ∈ Ĩ))
 
     n,p = 100,3
     j° = p
@@ -52,7 +57,6 @@ for i in 1:100
     @test x̃ == min(U[I,j°][U[I,j°].≥c]...)
     @test j̃ == j°
     @test l̃ ≈ min(sses_brute(U[I,j°], Y[I])...)
-
 
     j°° = 1
     Y = Vector{Float64}((U[:,j°] .≥ c) .& (U[:,j°°] .≥ c))
