@@ -3,7 +3,7 @@ import Statistics: mean
 import SelectivelyAdaptiveLasso as SAL
 using Test
 
-@testset "FeatureVector" begin
+@testset "FeatureVector" begin for i in 1:100
     n = 100
     U = rand(n)
     X = SAL.FeatureVector(U)
@@ -13,17 +13,13 @@ using Test
     @test all(U[X.sorted_to_raw[I]] == X.sorted[I])
     @test X.sorted[sort(X.raw_to_sorted[I])] == U[I[SAL.sortperm_subset(X,I)]]
     @test issorted(X.sorted[X.raw_to_sorted[I[SAL.sortperm_subset(X,I)]]], rev=true)
+end end
 
-
-end
-
-@testset "basis selection" begin
-for i in 1:100
-    n=100
-    c = 0.4
+@testset "1-dim basis selection (right)" begin for i in 1:100
+    n,c = 100, 0.4
     I = collect(1:2:n) # must be increasing to keep X sorted
     X = sort(rand(n), rev=true)
-    Y = Vector{Float64}(X.>c)
+    Y = Vector{Float64}(X.≥c)
 
     Ŷ(X,Y) = X*mean(Y[X])
     sses_brute(X,Y) = [sum((Y.-Ŷ(X.≥xi,Y)).^2) for xi in X]
@@ -32,18 +28,44 @@ for i in 1:100
     @test all(sses_brute(X,Y) .≈ sses_clever)
     @assert issorted(X[I], rev=true)
 
-    Ĩ, Ỹ, _, x̃, l̃ = SAL.best_split_sorted(I,X[I],Y[I])
+    Ĩ, Ỹ, _, (x̃,d), l̃ = SAL.best_split_sorted(I,X[I],Y[I])
     @test Set(Ĩ) == Set((1:n)[X.≥c]) ∩ Set(I)
     @test all(Ỹ .== 1)
     @test x̃ == min(X[I][X[I].≥c]...)
+    @test d == :right
     @test l̃ ≈ min(sses_brute(X[I], Y[I])...)
+end end
 
+@testset "1-dim basis selection (left)" begin for i in 1:100
+    n,c = 10, 0.4
+    I = collect(1:2:n) # must be increasing to keep X sorted
+    X = sort(rand(n), rev=true)
+    Y = Vector{Float64}(X.≤c)
+
+    Ŷ(X,Y) = X*mean(Y[X])
+    sses_brute(X,Y) = [sum((Y.-Ŷ(X.≤xi,Y)).^2) for xi in X]
+    sses_clever = SAL.sse_indicator_ols(reverse(Y))
+
+    @test all(sses_brute(X,Y) .≈ reverse(sses_clever))
+    @assert issorted(X[I], rev=true)
+
+    Ĩ, Ỹ, _, (x̃,d), l̃ = SAL.best_split_sorted(I,X[I],Y[I])
+    @test Set(Ĩ) == Set((1:n)[X.≤c]) ∩ Set(I)
+    @test all(Ỹ .== 1)
+    @test x̃ == min(X[I][X[I].≤c]...)
+    @test d == :left
+    @test l̃ ≈ min(sses_brute(X[I], Y[I])...)
+end end
+
+@testset "changepoint inclusion" begin for i in 1:100
     X = [1.0, 0.9, 0.9, 0.5, 0.1]
     I = 1:length(X)
     Y = rand(length(X))
-    Ĩ, Ỹ, _, x̃, l̃ = SAL.best_split_sorted(I,X[I],Y[I])
+    Ĩ, Ỹ, _, (x̃,d), l̃ = SAL.best_split_sorted(I,X[I],Y[I])
     @test ((2 ∉ Ĩ) & (3 ∉ Ĩ)) | ((2 ∈ Ĩ) & (3 ∈ Ĩ))
+end end
 
+@testset "multidim basis selection" begin for i in 1:100
     n,p = 100,3
     j° = p
     U = rand(n,p)
@@ -56,7 +78,6 @@ for i in 1:100
     @test all(Ỹ .== 1)
     @test x̃ == min(U[I,j°][U[I,j°].≥c]...)
     @test j̃ == j°
-    @test l̃ ≈ min(sses_brute(U[I,j°], Y[I])...)
 
     j°° = 1
     Y = Vector{Float64}((U[:,j°] .≥ c) .& (U[:,j°°] .≥ c))
@@ -90,5 +111,4 @@ for i in 1:100
     bool_basis_val = reduce(.*, [U_val[:,j] .≥ c for (j,c) in index])
     @test Set(Vector{Int}(basis.nzind)) == Set((1:n)[bool_basis])
     @test Set(Vector{Int}(basis_val.nzind)) == Set((1:n_val)[bool_basis_val])
-end
-end
+end end

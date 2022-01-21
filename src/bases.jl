@@ -92,21 +92,35 @@ function sse_indicator_ols(Y::Vector{Float64}, Y2::Vector{Float64}=Y.^2)
 end
 
 function best_split_sorted(
-    I, # index within unsorted: X[I] is sorted
-    X::Vector{Float64},
+    I, # index of Xᵢ within unsorted
+    X::Vector{Float64}, # decreasing vector 
     Y::Vector{Float64}, 
     Y2::Vector{Float64} = Y.^2,
     off_limits = Set{Float64}(),
-)::Tuple{Any, Vector{Float64}, Vector{Float64}, Float64, Float64}
+)::Tuple{Any, Vector{Float64}, Vector{Float64}, Tuple{Float64, Symbol}, Float64}
     # to allow for splits on either side (≥ OR <) just do the cumsums in both
     # directions! Just be careful with the valid cutpoints ^
-    sses = sse_indicator_ols(Y, Y2)
+    n = length(I)
+    sses_right = sse_indicator_ols(Y, Y2)
+    sses_left = sse_indicator_ols(reverse(Y), reverse(Y2))
+    sses = [sses_left ; sses_right]
     sse_order = sortperm(sses)
-    changes = changepoints(X)
-    for ĩ in (i for i in sse_order if i ∈ changes)
-        x = X[ĩ]
-        if (x ∉ off_limits)
-            return I[1:ĩ], Y[1:ĩ], Y2[1:ĩ], x, sses[ĩ]
+    idx = [n:-1:1 ; 1:n][sse_order]
+    direction = [[:left for i in 1:n]; [:right for in in 1:n]][sse_order]
+    changes = Dict(
+        :left=>changepoints(reverse(X)), 
+        :right=>changepoints(X)
+    )
+    for (i, d) in zip(idx, direction)
+        if i ∈ changes[d]
+            x = X[i]
+            if ((x,d) ∉ off_limits)
+                if d == :right
+                    return I[1:i], Y[1:i], Y2[1:i], (x,d), sses_right[i]
+                else
+                    return I[i:end], Y[i:end], Y2[i:end], (x,d), sses_left[i]
+                end
+            end
         end
     end
     return I, Y, Y2, NaN, Inf
