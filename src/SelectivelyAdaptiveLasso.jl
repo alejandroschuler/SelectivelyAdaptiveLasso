@@ -98,7 +98,7 @@ function fit(
 
     	for j in 1:sal.bases_per_iter
             index, basis = basis_search(
-                X, R, 
+                X, R, λ,
                 subsample_n=subsample_n, feat_n=feat_n,
                 off_limits = deepcopy(keys(bases))
             )

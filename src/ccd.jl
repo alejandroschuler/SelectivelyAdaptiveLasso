@@ -19,7 +19,7 @@ function coordinate_descent(
         X::Bases,
         Y::Vector{Float64};
         λ::Real = 1,
-        β::Dict{BasisIndex, Float64} = Dict{BasisIndex, Float64}(BasisIndex([(0,NaN)]) => 0.0),
+        β::Dict{BasisIndex, Float64} = Dict{BasisIndex, Float64}(INTERCEPT => 0.0),
         tol::Number = 1e-4,
     )::Tuple{Dict{BasisIndex, Float64}, Vector{Float64}, Vector{Float64}}
    
@@ -75,7 +75,7 @@ function coordinate_descent(
     
     β = Dict(
         b=>βb for (b,βb) in β 
-        if (βb ≠ 0.0) | ( b == BasisIndex([(0,NaN)]) )
+        if (βb ≠ 0.0) | ( b == INTERCEPT )
     )
     return β, residual, cycle_loss
 end

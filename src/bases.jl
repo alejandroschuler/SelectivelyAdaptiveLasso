@@ -8,7 +8,8 @@ import Combinatorics: powerset
 using InvertedIndices
 
 
-BasisIndex = Set{Tuple{Int, Float64}}
+BasisIndex = Set{Tuple{Int, Float64, Symbol}}
+global const INTERCEPT = BasisIndex([(0,NaN,:right)])
 
 struct BasisVector
     length::Int
@@ -57,18 +58,31 @@ function findfirst_gte_sorted(S::Vector{Float64}, x::Float64)
     return length(S)
 end
 
-function one_way(X::FeatureVector, x)
-    final = findfirst_gte_sorted(X.sorted, x)
-    if final == 0 return Vector{UInt32}() end
-    return X.sorted_to_raw[1:final]
+function findfirst_lte_sorted(S::Vector{Float64}, x::Float64)
+    for (i,xi) in Iterators.reverse(enumerate(S))
+        if xi > x return i+1 end
+    end
+    return 1
+end
+
+function one_way(X::FeatureVector, x, d)
+    if d == :right
+        final = findfirst_gte_sorted(X.sorted, x)
+        if final == 0 return Vector{UInt32}() end
+        return X.sorted_to_raw[1:final]
+    else
+        start = findfirst_lte_sorted(X.sorted, x)
+        if start == X.n+1 return Vector{UInt32}() end
+        return X.sorted_to_raw[start:end]
+    end
 end
 
 function build_basis(X::Vector{FeatureVector}, idx::BasisIndex)
     return BasisVector(
         X[1].n,
         intersect([
-            j==0 ? (1:X[1].n) : one_way(X[j], x) 
-            for (j,x) in idx
+            j==0 ? (1:X[1].n) : one_way(X[j], x, d) 
+            for (j,x,d) in idx
         ]...)
     )
 end
@@ -88,39 +102,28 @@ function sse_indicator_ols(Y::Vector{Float64}, Y2::Vector{Float64}=Y.^2)
     Y_sq_sums = cumsum(Y2)
     nnz = 1:length(Y)
 
-    return (Y_sq_sums - (Y_sums.^2) ./ nnz) + (Y_sq_sums[end] .- Y_sq_sums)
+    sses = (Y_sq_sums - (Y_sums.^2) ./ nnz) + (Y_sq_sums[end] .- Y_sq_sums)
+    return sses, Y_sums
+    # return ( (Y_sq_sums - (Y_sums.^2) ./ nnz) + (Y_sq_sums[end] .- Y_sq_sums) ) ./ abs.(Y_sums)
+    # return -abs.(Y_sums)
 end
 
 function best_split_sorted(
-    I, # index of Xᵢ within unsorted
-    X::Vector{Float64}, # decreasing vector 
+    I, # index within unsorted: X[I] is sorted
+    X::Vector{Float64},
     Y::Vector{Float64}, 
     Y2::Vector{Float64} = Y.^2,
+    λ = -Inf,
     off_limits = Set{Float64}(),
-)::Tuple{Any, Vector{Float64}, Vector{Float64}, Tuple{Float64, Symbol}, Float64}
-    # to allow for splits on either side (≥ OR <) just do the cumsums in both
-    # directions! Just be careful with the valid cutpoints ^
-    n = length(I)
-    sses_right = sse_indicator_ols(Y, Y2)
-    sses_left = sse_indicator_ols(reverse(Y), reverse(Y2))
-    sses = [sses_left ; sses_right]
+)::Tuple{Any, Vector{Float64}, Vector{Float64}, Float64, Float64}
+    sses, ρs = sse_indicator_ols(Y, Y2)
+    βnz = (abs.(ρs) .> λ)
     sse_order = sortperm(sses)
-    idx = [n:-1:1 ; 1:n][sse_order]
-    direction = [[:left for i in 1:n]; [:right for in in 1:n]][sse_order]
-    changes = Dict(
-        :left=>changepoints(reverse(X)), 
-        :right=>changepoints(X)
-    )
-    for (i, d) in zip(idx, direction)
-        if i ∈ changes[d]
-            x = X[i]
-            if ((x,d) ∉ off_limits)
-                if d == :right
-                    return I[1:i], Y[1:i], Y2[1:i], (x,d), sses_right[i]
-                else
-                    return I[i:end], Y[i:end], Y2[i:end], (x,d), sses_left[i]
-                end
-            end
+    changes = changepoints(X)
+    for ĩ in (i for i in sse_order if ((i ∈ changes) & βnz[i]))
+        x = X[ĩ]
+        if (x ∉ off_limits)
+            return I[1:ĩ], Y[1:ĩ], Y2[1:ĩ], x, sses[ĩ]
         end
     end
     return I, Y, Y2, NaN, Inf
@@ -130,35 +133,54 @@ function interact_basis(
     I,
     X::Vector{FeatureVector}, 
     Y::Vector{Float64}, 
-    Y2::Vector{Float64} = Y.^2,
+    Y2::Vector{Float64} = Y.^2;
     features = 1:length(X),
-    off_limits::Set{Tuple{Int, Float64}} = Set{Tuple{Int, Float64}}(),
+    λ = -Inf,
+    off_limits::Set{Tuple{Int, Float64, Symbol}} = Set{Tuple{Int, Float64, Symbol}}(),
+    right_only = true,
 )
     results = []
     for j in features
         Ĩ = sortperm_subset(X[j], I)
         I_sorted = I[Ĩ]
-        push!(results, best_split_sorted(
+        vector_args = (
             I_sorted, 
             X[j].sorted[X[j].raw_to_sorted[I_sorted]], 
             Y[Ĩ], 
-            Y2[Ĩ], 
-            Set(x for (k,x) in off_limits if k==j),
-        ))
+            Y2[Ĩ],
+        )
+        right_split = best_split_sorted(
+            vector_args..., λ,
+            Set(x for (k,x,d) in off_limits if (k==j)&(d==:right)),
+        )
+        if right_only
+            push!(results, [right_split..., :right])
+        else
+            left_split = best_split_sorted(
+                [reverse(v) for v in vector_args]..., λ,
+                Set(x for (k,x,d) in off_limits if (k==j)&(d==:left)),
+            )
+            if right_split[end] ≤ left_split[end] # these are the sses
+                push!(results, [right_split..., :right])
+            else
+                push!(results, [left_split..., :left])
+            end
+        end
     end
-    Is, Ys, Y2s, xs, sses = zip(results...)
+    Is, Ys, Y2s, xs, sses, ds = zip(results...)
     sse, j = findmin(sses)
-    return Is[j], Ys[j], Y2s[j], (features[j], xs[j]), sses[j]
+    return Is[j], Ys[j], Y2s[j], (features[j], xs[j], ds[j]), sses[j]
 end
 
 filter_and_pare(Ω, ω) = Set(delete!(A,ω) for A in Ω if ω in A) # ω ∈ A ∈ Ω
 
 function basis_search(
     X::Vector{FeatureVector},
-    Y::Vector{Float64};
+    Y::Vector{Float64},
+    λ;
     subsample_n::Int=length(Y), 
     feat_n::Int=Int(ceil(sqrt(length(X)))),
-    off_limits = Set([BasisIndex([(0, NaN)])]), # iterable of [BasisIndex]es
+    off_limits = Set(INTERCEPT), # iterable of [BasisIndex]es
 )::Tuple{BasisIndex, BasisVector}
     #=
     Greedily attempt to find the basis vector that will be most useful to add to the lasso by interacting 
@@ -183,12 +205,14 @@ function basis_search(
 
         Ĩ, Y, Y2, coord, sse = interact_basis(
             I, X, Y, Y2,
-            features, 
-            off_limits_coords ∪ basis_index
+            features = features, 
+            λ = λ*(subsample_n/n),
+            off_limits = BasisIndex(off_limits_coords ∪ basis_index),
+            right_only = false,
         )
         if (current_sse ≤ sse) | (current_sse ≈ sse) 
             if length(basis_index) == 0
-                basis_index = Set{Tuple{Int,Float64}}([(0, NaN)]) 
+                basis_index = INTERCEPT
             end
             if subsample_n == n
                 return basis_index, BasisVector(n, I)
@@ -209,7 +233,7 @@ function basis_search_random(X::Vector{FeatureVector})::Tuple{BasisIndex, BasisV
     while length(features) == 0
         features = (1:p)[sample([false,true], p)]
     end
-    basis_index = Set((j, X[j].sorted[rand(1:n)]) for j in features)
+    basis_index = Set((j, X[j].sorted[rand(1:n)], rand([:right,:left])) for j in features)
     return basis_index, build_basis(X, basis_index)
 end
 
@@ -226,7 +250,7 @@ end
 
 function Bases(
     X::Vector{FeatureVector}; 
-    indices = Set{BasisIndex}([BasisIndex([(0,NaN)])])
+    indices = Set{BasisIndex}([INTERCEPT])
 )::Bases
     bases = Bases(
         Dict{BasisIndex, BasisVector}(),
@@ -243,7 +267,7 @@ keys(bases::Bases) = keys(bases.dict)
 getindex(bases::Bases, b::BasisIndex)::BasisVector = bases.dict[b]
 
 function *(X::Bases, β::Dict{BasisIndex, Float64})::Vector{Float64}
-    total = zeros(Float64, X.sum[BasisIndex([(0,NaN)])])
+    total = zeros(Float64, X.sum[INTERCEPT])
     for (b, βi) in β
         # total[X[b].nzind] .+= βi
         for i in X[b].nzind
@@ -280,7 +304,7 @@ function delete_basis!(
 end
 
 function filter_bases!(bases::Bases, indices)
-    indices = push!(Set(indices), Set([(0.0, NaN)]))
+    indices = push!(Set(indices), INTERCEPT)
     for b in setdiff(Set(keys(bases)), Set(indices))
         delete_basis!(bases, b)
     end
